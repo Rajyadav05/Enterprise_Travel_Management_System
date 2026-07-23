@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    /* Project structure */
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    /* Language and environment */
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["ES2022"],
+    "types": ["node"],
+
+    /* Module resolution (TS 7: bundler pairs with commonjs for Node.js projects) */
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* Output */
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+
+    /* Type checking */
+    "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+
+    /* Performance */
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

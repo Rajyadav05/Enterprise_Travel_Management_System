@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables
+.env
+
+# User-generated uploads
+uploads/
+
+# Test coverage
+coverage/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Prisma generated client (custom output path)
+generated/

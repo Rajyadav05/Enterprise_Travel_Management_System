@@ -7,18 +7,77 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+//
+// =========================
+// ENUMS — ORGANIZATION
+// =========================
+//
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  RESIGNED
+}
+
+enum EmploymentType {
+  PERMANENT
+  CONTRACT
+  INTERN
+}
+
+//
+// =========================
+// ENUMS — TRAVEL DOMAIN
+// =========================
+//
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  BOOKED
+  REJECTED
+  CANCELLED
+}
+
+enum TripType {
+  ONE_WAY
+  ROUND_TRIP
+}
+
+enum BookingVendor {
+  MAKEMYTRIP
+  CLEARTRIP
+  AIRLINE_WEBSITE
+  TRAVEL_AGENT
+  CORPORATE_TRAVEL_AGENT
+  KNOWN_PERSON
+  OTHER
+}
+
+//
+// =========================
+// ROLE
+// =========================
+//
+
 model Role {
   id          String  @id @default(uuid())
   name        String  @unique
   description String?
 
+  users User[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users User[]
-
   @@map("roles")
 }
+
+//
+// =========================
+// USER (Authentication)
+// =========================
+//
 
 model User {
   id           String @id @default(uuid())
@@ -30,8 +89,260 @@ model User {
 
   isActive Boolean @default(true)
 
+  // One User -> One Employee
+  employee Employee?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("users")
+}
+
+//
+// =========================
+// DEPARTMENT
+// =========================
+//
+
+model Department {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  description String?
+
+  employees Employee[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("departments")
+}
+
+//
+// =========================
+// DESIGNATION
+// =========================
+//
+
+model Designation {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  description String?
+
+  employees Employee[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("designations")
+}
+
+//
+// =========================
+// BRANCH
+// =========================
+//
+
+model Branch {
+  id String @id @default(uuid())
+
+  name    String
+  city    String
+  state   String
+  country String
+
+  employees Employee[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("branches")
+}
+
+//
+// =========================
+// EMPLOYEE
+// =========================
+//
+
+model Employee {
+  id String @id @default(uuid())
+
+  employeeId String @unique
+
+  firstName String
+  lastName  String
+
+  phone String?
+
+  dateOfJoining DateTime?
+
+  employmentType EmploymentType @default(PERMANENT)
+
+  status EmployeeStatus @default(ACTIVE)
+
+  // Authentication
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  // Department
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  // Designation
+  designationId String
+  designation   Designation @relation(fields: [designationId], references: [id])
+
+  // Branch
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  // Manager Hierarchy (self-referencing)
+  reportingManagerId String?
+  reportingManager   Employee?  @relation("ReportingManager", fields: [reportingManagerId], references: [id])
+  subordinates       Employee[] @relation("ReportingManager")
+
+  // Travel requests submitted by this employee
+  travelRequests TravelRequest[] @relation("TravelRequestEmployee")
+
+  // Travel requests approved or rejected by this employee (admin action)
+  approvedRequests TravelRequest[] @relation("TravelRequestApprover")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("employees")
+}
+
+//
+// =========================
+// TRAVEL REQUEST
+// =========================
+//
+
+model TravelRequest {
+  id String @id @default(uuid())
+
+  // The employee who submitted this request
+  employeeId String
+  employee   Employee @relation("TravelRequestEmployee", fields: [employeeId], references: [id])
+
+  // Trip details
+  origin      String
+  destination String
+
+  departureDate DateTime
+  returnDate    DateTime? // Nullable: not required for ONE_WAY trips
+
+  tripType TripType
+
+  purpose        String
+  additionalInfo String?
+
+  // Workflow status
+  status RequestStatus @default(PENDING)
+
+  // Approval / Rejection fields (populated by admin action)
+  approvedById    String?
+  approvedBy      Employee? @relation("TravelRequestApprover", fields: [approvedById], references: [id])
+  approvalDate    DateTime?
+  rejectionReason String?
+
+  // One TravelRequest -> at most one Booking (enforced via @unique on Booking.travelRequestId)
+  booking Booking?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([employeeId])
+  @@index([status])
+  @@index([departureDate])
+  @@index([createdAt])
+  @@map("travel_requests")
+}
+
+//
+// =========================
+// BOOKING
+// =========================
+//
+
+model Booking {
+  id String @id @default(uuid())
+
+  // One-to-one relationship with TravelRequest
+  // @unique enforces that each TravelRequest has at most one Booking
+  travelRequestId String        @unique
+  travelRequest   TravelRequest @relation(fields: [travelRequestId], references: [id])
+
+  // Flight details
+  airline      String
+  flightNumber String
+  pnr          String
+  ticketNumber String
+
+  departureAirport String
+  arrivalAirport   String
+
+  departureDatetime DateTime
+  arrivalDatetime   DateTime
+
+  // Monetary fields
+  fare     Decimal @db.Decimal(10, 2)
+  currency String // ISO 4217 code e.g. "INR", "USD"
+
+  // Seat and baggage (optional at booking time)
+  seat    String?
+  baggage String?
+
+  // Booking source
+  vendor        BookingVendor
+  bookingSource String? // Free-text supplementary note (e.g. agent name, website URL)
+
+  bookingDate DateTime
+
+  // Path to uploaded ticket file (relative to uploads directory), set after upload
+  ticketFilePath String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([travelRequestId])
+  @@index([pnr])
+  @@map("bookings")
+}
+
+//
+// =========================
+// AUDIT LOG
+// =========================
+//
+
+model AuditLog {
+  id String @id @default(uuid())
+
+  actorUserId     String?
+  actorEmployeeId String?
+
+  action String
+
+  entityType String
+  entityId   String?
+
+  oldValue Json?
+  newValue Json?
+
+  metadata Json?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([actorUserId])
+  @@index([actorEmployeeId])
+  @@index([action])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
 }

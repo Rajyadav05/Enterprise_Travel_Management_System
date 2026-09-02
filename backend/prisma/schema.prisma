@@ -34,6 +34,7 @@ enum EmploymentType {
 enum RequestStatus {
   PENDING
   APPROVED
+  BOOKED
   REJECTED
   CANCELLED
 }
@@ -308,4 +309,40 @@ model Booking {
   @@index([travelRequestId])
   @@index([pnr])
   @@map("bookings")
+}
+
+//
+// =========================
+// AUDIT LOG
+// =========================
+//
+
+model AuditLog {
+  id String @id @default(uuid())
+
+  actorUserId     String?
+  actorEmployeeId String?
+
+  action String
+
+  entityType String
+  entityId   String?
+
+  oldValue Json?
+  newValue Json?
+
+  metadata Json?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([actorUserId])
+  @@index([actorEmployeeId])
+  @@index([action])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
 }

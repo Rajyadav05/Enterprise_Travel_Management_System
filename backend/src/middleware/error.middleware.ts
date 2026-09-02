@@ -89,6 +89,22 @@ export const errorHandler = (
     message = "Malformed JSON body in request";
     isOperational = true;
     stack = err.stack;
+  } else if (
+    typeof err === "object" &&
+    err !== null &&
+    "name" in err &&
+    err.name === "MulterError"
+  ) {
+    isOperational = true;
+    stack = (err as Error).stack;
+    const multerError = err as { code?: string; message?: string };
+    if (multerError.code === "LIMIT_FILE_SIZE") {
+      statusCode = HTTP_STATUS.PAYLOAD_TOO_LARGE;
+      message = RESPONSE_MESSAGES.FILE_TOO_LARGE;
+    } else {
+      statusCode = HTTP_STATUS.BAD_REQUEST;
+      message = multerError.message ?? "File upload error";
+    }
   } else if (err instanceof Error) {
     message = err.message;
     stack = err.stack;

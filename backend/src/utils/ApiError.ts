@@ -48,6 +48,20 @@ export class ApiError extends Error {
     return new ApiError(HTTP_STATUS.UNPROCESSABLE_ENTITY, message, errors);
   }
 
+  public static payloadTooLarge(
+    message = "File size exceeds 5MB limit",
+    errors: unknown[] = []
+  ): ApiError {
+    return new ApiError(HTTP_STATUS.PAYLOAD_TOO_LARGE, message, errors);
+  }
+
+  public static unsupportedMediaType(
+    message = "Unsupported media type",
+    errors: unknown[] = []
+  ): ApiError {
+    return new ApiError(HTTP_STATUS.UNSUPPORTED_MEDIA_TYPE, message, errors);
+  }
+
   public static internal(
     message = "Internal Server Error",
     errors: unknown[] = []

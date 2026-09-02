@@ -9,6 +9,24 @@ const envSchema = z.object({
   JWT_REFRESH_SECRET: z.string().optional(),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   CORS_ORIGIN: z.string().default("*"),
+  SMTP_HOST: z
+    .preprocess((val) => (val === "" ? undefined : val), z.string().optional()),
+  SMTP_PORT: z
+    .preprocess(
+      (val) => (val === "" || val === undefined ? undefined : val),
+      z.coerce.number().int().positive().optional()
+    )
+    .default(587),
+  SMTP_USER: z
+    .preprocess((val) => (val === "" ? undefined : val), z.string().optional()),
+  SMTP_PASS: z
+    .preprocess((val) => (val === "" ? undefined : val), z.string().optional()),
+  SMTP_FROM: z
+    .preprocess((val) => (val === "" ? undefined : val), z.string().optional())
+    .default("ETMS <no-reply@etms.local>"),
+  ADMIN_EMAIL: z
+    .preprocess((val) => (val === "" ? undefined : val), z.string().optional())
+    .default("admin@etms.local"),
 });
 
 const parseEnv = () => {

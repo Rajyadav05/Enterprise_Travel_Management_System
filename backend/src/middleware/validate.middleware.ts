@@ -39,10 +39,30 @@ export const validate = (schema: ZodSchema | RequestValidationSchemas) => {
         req.body = await schemas.body.parseAsync(req.body);
       }
       if (schemas.query) {
-        req.query = (await schemas.query.parseAsync(req.query)) as Request["query"];
+        const parsedQuery = (await schemas.query.parseAsync(req.query)) as Record<string, unknown>;
+        try {
+          req.query = parsedQuery as Request["query"];
+        } catch {
+          Object.defineProperty(req, "query", {
+            value: parsedQuery,
+            configurable: true,
+            enumerable: true,
+            writable: true,
+          });
+        }
       }
       if (schemas.params) {
-        req.params = (await schemas.params.parseAsync(req.params)) as Request["params"];
+        const parsedParams = (await schemas.params.parseAsync(req.params)) as Record<string, unknown>;
+        try {
+          req.params = parsedParams as Request["params"];
+        } catch {
+          Object.defineProperty(req, "params", {
+            value: parsedParams,
+            configurable: true,
+            enumerable: true,
+            writable: true,
+          });
+        }
       }
 
       return next();

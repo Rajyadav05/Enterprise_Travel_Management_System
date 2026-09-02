@@ -1,7 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
 import { ApiError } from "../../utils/ApiError";
 import { ApiResponse } from "../../utils/ApiResponse";
-import { HTTP_STATUS, RESPONSE_MESSAGES } from "../../utils/constants";
+import {
+  AUDIT_ACTIONS,
+  HTTP_STATUS,
+  RESPONSE_MESSAGES,
+} from "../../utils/constants";
+import { auditService } from "../audit/audit.service";
 import { authService } from "./auth.service";
 import type { LoginInput, RegisterInput } from "./auth.types";
 
@@ -17,6 +22,20 @@ export class AuthController {
     try {
       const input: LoginInput = req.body;
       const result = await authService.login(input);
+
+      void auditService.createAuditLog({
+        actorUserId: result.user.id,
+        actorEmployeeId: result.employee?.id ?? null,
+        action: AUDIT_ACTIONS.USER_LOGIN,
+        entityType: "User",
+        entityId: result.user.id,
+        metadata: {
+          email: result.user.email,
+          employeeId: result.employee?.employeeId ?? null,
+        },
+        ipAddress: req.ip ?? req.socket.remoteAddress ?? null,
+        userAgent: req.get("user-agent") ?? null,
+      });
 
       ApiResponse.send(
         res,

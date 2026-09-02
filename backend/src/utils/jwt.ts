@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import jwt, { type SignOptions } from "jsonwebtoken";
 import { env } from "../config/env";
 import { ApiError } from "./ApiError";
@@ -11,7 +12,7 @@ export interface JwtTokenPayload {
 }
 
 /**
- * Generates a signed JWT token with the provided payload.
+ * Generates a signed JWT access token with the provided payload.
  */
 export const generateToken = (
   payload: JwtTokenPayload,
@@ -41,3 +42,41 @@ export const verifyToken = <T extends object = JwtTokenPayload>(token: string): 
     throw ApiError.unauthorized(RESPONSE_MESSAGES.UNAUTHORIZED);
   }
 };
+
+/**
+ * Generates a cryptographically random, unguessable refresh token string.
+ */
+export const generateRefreshToken = (): string => {
+  return crypto.randomBytes(40).toString("hex");
+};
+
+/**
+ * Computes a SHA-256 hash of a raw token string for safe server-side storage.
+ */
+export const hashToken = (token: string): string => {
+  return crypto.createHash("sha256").update(token).digest("hex");
+};
+
+/**
+ * Computes the expiration Date for a refresh token based on duration string (e.g. '7d', '24h').
+ */
+export const computeRefreshTokenExpiry = (durationStr: string = env.REFRESH_TOKEN_EXPIRES_IN): Date => {
+  const match = durationStr.match(/^(\d+)([smhd])$/);
+  const now = Date.now();
+  if (!match) {
+    // Default to 7 days
+    return new Date(now + 7 * 24 * 60 * 60 * 1000);
+  }
+
+  const value = parseInt(match[1]!, 10);
+  const unit = match[2];
+
+  let ms = 7 * 24 * 60 * 60 * 1000;
+  if (unit === "s") ms = value * 1000;
+  else if (unit === "m") ms = value * 60 * 1000;
+  else if (unit === "h") ms = value * 60 * 60 * 1000;
+  else if (unit === "d") ms = value * 24 * 60 * 60 * 1000;
+
+  return new Date(now + ms);
+};
+

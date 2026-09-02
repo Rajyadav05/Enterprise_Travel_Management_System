@@ -10,8 +10,8 @@
     "lib": ["ES2022"],
     "types": ["node"],
 
-    /* Module resolution (TS 7: bundler pairs with commonjs for Node.js projects) */
-    "moduleResolution": "bundler",
+    /* Module resolution */
+    "moduleResolution": "node",
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,

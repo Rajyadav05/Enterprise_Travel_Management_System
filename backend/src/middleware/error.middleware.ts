@@ -38,7 +38,18 @@ export const errorHandler = (
   let isOperational = false;
   let stack: string | undefined;
 
-  if (err instanceof ApiError) {
+  if (
+    (typeof err === "object" && err !== null && "type" in err && (err as { type: unknown }).type === "entity.too.large") ||
+    (typeof err === "object" && err !== null && "status" in err && (err as { status: unknown }).status === 413) ||
+    (typeof err === "object" && err !== null && "statusCode" in err && (err as { statusCode: unknown }).statusCode === 413) ||
+    (typeof err === "object" && err !== null && "name" in err && (err as { name: unknown }).name === "PayloadTooLargeError") ||
+    (err instanceof Error && err.name === "PayloadTooLargeError")
+  ) {
+    statusCode = HTTP_STATUS.PAYLOAD_TOO_LARGE;
+    message = "Request payload too large. Maximum allowed size is 1MB.";
+    isOperational = true;
+    stack = (err as Error).stack;
+  } else if (err instanceof ApiError) {
     statusCode = err.statusCode;
     message = err.message;
     errors = err.errors;

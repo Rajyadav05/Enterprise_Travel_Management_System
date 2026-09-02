@@ -92,6 +92,9 @@ model User {
   // One User -> One Employee
   employee Employee?
 
+  // Refresh tokens for session rotation
+  refreshTokens RefreshToken[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -345,4 +348,28 @@ model AuditLog {
   @@index([entityId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+//
+// =========================
+// REFRESH TOKEN (Session Hardening)
+// =========================
+//
+
+model RefreshToken {
+  id        String @id @default(uuid())
+  tokenHash String @unique
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  revoked   Boolean  @default(false)
+  expiresAt DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
 }

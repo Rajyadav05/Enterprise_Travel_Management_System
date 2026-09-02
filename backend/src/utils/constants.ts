@@ -11,6 +11,7 @@ export const HTTP_STATUS = {
   PAYLOAD_TOO_LARGE: 413,
   UNSUPPORTED_MEDIA_TYPE: 415,
   UNPROCESSABLE_ENTITY: 422,
+  TOO_MANY_REQUESTS: 429,
   INTERNAL_SERVER_ERROR: 500,
 } as const;
 
@@ -78,8 +79,11 @@ export const AUDIT_ACTIONS = {
   REPORT_EXPORTED: "REPORT_EXPORTED",
   ROLE_CHANGED: "ROLE_CHANGED",
   USER_DEACTIVATED: "USER_DEACTIVATED",
+  USER_LOGOUT: "USER_LOGOUT",
+  TOKEN_REFRESHED: "TOKEN_REFRESHED",
 } as const;
 
 export type AuditActionType = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
 
 export const AUTH_COOKIE_NAME = "etms_auth_token";
+export const REFRESH_COOKIE_NAME = "etms_refresh_token";

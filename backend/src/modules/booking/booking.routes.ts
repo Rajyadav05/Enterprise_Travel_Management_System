@@ -64,6 +64,70 @@ const upload = multer({
   },
 });
 
+/**
+ * Validates actual binary magic bytes of the uploaded file to ensure
+ * it is genuinely a PDF, JPEG, or PNG, preventing disguised file uploads.
+ */
+const validateTicketMagicBytes = (
+  req: Express.Request,
+  _res: Express.Response,
+  next: (err?: unknown) => void
+): void => {
+  const file = req.file;
+  if (!file) {
+    return next(ApiError.badRequest("Ticket file is required."));
+  }
+
+  const filePath = file.path;
+  try {
+    const buffer = Buffer.alloc(8);
+    const fd = fs.openSync(filePath, "r");
+    fs.readSync(fd, buffer, 0, 8, 0);
+    fs.closeSync(fd);
+
+    const isPdf =
+      buffer[0] === 0x25 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x44 &&
+      buffer[3] === 0x46; // %PDF
+    const isJpeg =
+      buffer[0] === 0xff &&
+      buffer[1] === 0xd8 &&
+      buffer[2] === 0xff; // JPEG SOI
+    const isPng =
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47 &&
+      buffer[4] === 0x0d &&
+      buffer[5] === 0x0a &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0x0a; // PNG signature
+
+    if (!isPdf && !isJpeg && !isPng) {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+      return next(
+        ApiError.unsupportedMediaType(
+          "Invalid file content signature. Uploaded file does not match genuine PDF or image format."
+        )
+      );
+    }
+
+    return next();
+  } catch (error) {
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch {
+        // Ignore
+      }
+    }
+    return next(error);
+  }
+};
+
 // ─── Admin Booking Router (/api/admin/bookings) ──────────────────────────────
 
 export const adminBookingRouter = Router();
@@ -88,6 +152,7 @@ adminBookingRouter.get(
 adminBookingRouter.post(
   "/:id/ticket",
   upload.single("ticket"),
+  validateTicketMagicBytes as never,
   bookingController.uploadTicket.bind(bookingController)
 );
 

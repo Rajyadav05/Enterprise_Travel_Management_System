@@ -5,7 +5,8 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(5000),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   JWT_SECRET: z.string().min(16, "JWT_SECRET must be at least 16 characters long"),
-  JWT_EXPIRES_IN: z.string().min(1, "JWT_EXPIRES_IN is required").default("7d"),
+  JWT_EXPIRES_IN: z.string().min(1, "JWT_EXPIRES_IN is required").default("15m"),
+  REFRESH_TOKEN_EXPIRES_IN: z.string().min(1, "REFRESH_TOKEN_EXPIRES_IN is required").default("7d"),
   JWT_REFRESH_SECRET: z.string().optional(),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   CORS_ORIGIN: z.string().default("*"),
@@ -27,7 +28,18 @@ const envSchema = z.object({
   ADMIN_EMAIL: z
     .preprocess((val) => (val === "" ? undefined : val), z.string().optional())
     .default("admin@etms.local"),
-});
+}).refine(
+  (data) => {
+    if (data.NODE_ENV === "production" && data.CORS_ORIGIN === "*") {
+      return false;
+    }
+    return true;
+  },
+  {
+    message: "Wildcard CORS_ORIGIN ('*') is not permitted in production mode with credentials enabled. Specify explicit origin(s).",
+    path: ["CORS_ORIGIN"],
+  }
+);
 
 const parseEnv = () => {
   const result = envSchema.safeParse(process.env);

@@ -2,20 +2,30 @@ import { prisma } from "../../config/prisma";
 import { ApiError } from "../../utils/ApiError";
 import { RESPONSE_MESSAGES } from "../../utils/constants";
 import { comparePassword, hashPassword } from "../../utils/hash";
-import { generateToken } from "../../utils/jwt";
+import {
+  computeRefreshTokenExpiry,
+  generateRefreshToken,
+  generateToken,
+  hashToken,
+} from "../../utils/jwt";
 import type {
   AuthResponseData,
   LoginInput,
   RegisterInput,
   SafeEmployee,
   SafeUser,
+  TokenRefreshResponse,
   UserProfileResponse,
 } from "./auth.types";
+
+// Constant dummy bcrypt hash used for timing attack mitigation when user does not exist
+const DUMMY_BCRYPT_HASH = "$2b$12$e8uqPz5GZ0K8J3iV1E4Q6eH7g9N1M3O5P7Q9R1S3T5U7V9W1X3Y5Z";
 
 export class AuthService {
   /**
    * Authenticates a user by email or employeeId.
-   * If login contains '@', it searches by email. Otherwise, it searches by employeeId.
+   * Mitigates user enumeration and timing attacks by always running bcrypt comparison
+   * and returning uniform error messages.
    */
   public async login(input: LoginInput): Promise<AuthResponseData> {
     const rawLogin = input.login.trim();
@@ -57,18 +67,13 @@ export class AuthService {
       }
     }
 
+    // If user not found, perform dummy comparison to equalize response timing
     if (!user) {
+      await comparePassword(input.password, DUMMY_BCRYPT_HASH);
       throw ApiError.unauthorized(RESPONSE_MESSAGES.INVALID_CREDENTIALS);
     }
 
-    if (!user.isActive) {
-      throw ApiError.forbidden(RESPONSE_MESSAGES.USER_INACTIVE);
-    }
-
-    if (employee && employee.status !== "ACTIVE") {
-      throw ApiError.forbidden(RESPONSE_MESSAGES.EMPLOYEE_INACTIVE);
-    }
-
+    // Compare password first
     const isPasswordValid = await comparePassword(
       input.password,
       user.passwordHash
@@ -78,11 +83,31 @@ export class AuthService {
       throw ApiError.unauthorized(RESPONSE_MESSAGES.INVALID_CREDENTIALS);
     }
 
+    // Check account status after password is confirmed valid (prevent enumeration)
+    if (!user.isActive || (employee && employee.status !== "ACTIVE")) {
+      throw ApiError.unauthorized(RESPONSE_MESSAGES.INVALID_CREDENTIALS);
+    }
+
+    // Generate short-lived access token
     const token = generateToken({
       userId: user.id,
       role: user.role.name,
       roleId: user.role.id,
       employeeId: employee?.employeeId,
+    });
+
+    // Generate cryptographically random refresh token & store its hash server-side
+    const rawRefreshToken = generateRefreshToken();
+    const tokenHash = hashToken(rawRefreshToken);
+    const expiresAt = computeRefreshTokenExpiry();
+
+    await prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        tokenHash,
+        expiresAt,
+        revoked: false,
+      },
     });
 
     const safeUser: SafeUser = {
@@ -115,6 +140,7 @@ export class AuthService {
 
     return {
       token,
+      refreshToken: rawRefreshToken,
       user: safeUser,
       employee: safeEmployee,
       role: {
@@ -124,6 +150,106 @@ export class AuthService {
       },
     };
   }
+
+  /**
+   * Refreshes access token and rotates the refresh token.
+   * If a revoked refresh token is presented, all refresh tokens for the user are invalidated (token theft detection).
+   */
+  public async refreshToken(rawRefreshToken: string): Promise<TokenRefreshResponse> {
+    if (!rawRefreshToken || typeof rawRefreshToken !== "string") {
+      throw ApiError.unauthorized("Refresh token is required.");
+    }
+
+    const tokenHash = hashToken(rawRefreshToken.trim());
+
+    const storedToken = await prisma.refreshToken.findUnique({
+      where: { tokenHash },
+      include: {
+        user: {
+          include: {
+            role: true,
+            employee: true,
+          },
+        },
+      },
+    });
+
+    if (!storedToken) {
+      throw ApiError.unauthorized("Invalid or expired session. Please log in again.");
+    }
+
+    // Reuse detection: if token is already revoked, compromise might have occurred
+    if (storedToken.revoked) {
+      // Invalidate all active sessions for this user for security
+      await prisma.refreshToken.updateMany({
+        where: { userId: storedToken.userId, revoked: false },
+        data: { revoked: true },
+      });
+      throw ApiError.unauthorized("Session revoked due to concurrent reuse. Please log in again.");
+    }
+
+    // Check expiration
+    if (storedToken.expiresAt < new Date()) {
+      await prisma.refreshToken.update({
+        where: { id: storedToken.id },
+        data: { revoked: true },
+      });
+      throw ApiError.unauthorized("Session expired. Please log in again.");
+    }
+
+    // Check user and employee status
+    const { user } = storedToken;
+    if (!user.isActive || (user.employee && user.employee.status !== "ACTIVE")) {
+      throw ApiError.unauthorized("User account is inactive.");
+    }
+
+    // Rotate: Revoke current token and create a new refresh token in a transaction
+    const newRawRefreshToken = generateRefreshToken();
+    const newTokenHash = hashToken(newRawRefreshToken);
+    const newExpiresAt = computeRefreshTokenExpiry();
+
+    await prisma.$transaction([
+      prisma.refreshToken.update({
+        where: { id: storedToken.id },
+        data: { revoked: true },
+      }),
+      prisma.refreshToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: newTokenHash,
+          expiresAt: newExpiresAt,
+          revoked: false,
+        },
+      }),
+    ]);
+
+    // Issue new access token
+    const newAccessToken = generateToken({
+      userId: user.id,
+      role: user.role.name,
+      roleId: user.role.id,
+      employeeId: user.employee?.employeeId,
+    });
+
+    return {
+      token: newAccessToken,
+      refreshToken: newRawRefreshToken,
+    };
+  }
+
+  /**
+   * Logs out user by revoking the specified refresh token.
+   */
+  public async logout(rawRefreshToken?: string): Promise<void> {
+    if (rawRefreshToken && typeof rawRefreshToken === "string") {
+      const tokenHash = hashToken(rawRefreshToken.trim());
+      await prisma.refreshToken.updateMany({
+        where: { tokenHash, revoked: false },
+        data: { revoked: true },
+      });
+    }
+  }
+
 
   /**
    * Retrieves the detailed profile of an authenticated user.

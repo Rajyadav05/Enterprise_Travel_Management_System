@@ -30,13 +30,54 @@ export const removeToken = (): void => {
 interface RequestOptions extends Omit<RequestInit, "body"> {
   params?: Record<string, string | number | boolean | undefined | null>;
   body?: unknown;
+  _isRetry?: boolean;
+}
+
+let isRefreshing = false;
+let refreshPromise: Promise<string | null> | null = null;
+
+async function attemptTokenRefresh(): Promise<string | null> {
+  if (isRefreshing && refreshPromise) {
+    return refreshPromise;
+  }
+
+  isRefreshing = true;
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(`${BASE_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        removeToken();
+        return null;
+      }
+
+      const body = (await response.json()) as ApiResponse<{ token: string }>;
+      if (body?.data?.token) {
+        setToken(body.data.token);
+        return body.data.token;
+      }
+      return null;
+    } catch {
+      removeToken();
+      return null;
+    } finally {
+      isRefreshing = false;
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
 }
 
 export async function apiClient<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  const { params, headers: customHeaders, body, ...customConfig } = options;
+  const { params, headers: customHeaders, body, _isRetry, ...customConfig } = options;
 
   let url = `${BASE_URL}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
 
@@ -64,11 +105,25 @@ export async function apiClient<T>(
   const response = await fetch(url, {
     ...customConfig,
     headers,
+    credentials: "include",
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  // Handle 401 Unauthorized globally
-  if (response.status === 401) {
+  // Handle 401 Unauthorized with silent token refresh attempt
+  if (
+    response.status === 401 &&
+    !_isRetry &&
+    !endpoint.includes("/auth/login") &&
+    !endpoint.includes("/auth/refresh")
+  ) {
+    const newToken = await attemptTokenRefresh();
+    if (newToken) {
+      return apiClient<T>(endpoint, {
+        ...options,
+        _isRetry: true,
+      });
+    }
+
     removeToken();
     if (
       window.location.pathname !== "/login" &&
@@ -116,6 +171,7 @@ export async function apiUpload<T>(
   const response = await fetch(url, {
     method: "POST",
     headers,
+    credentials: "include",
     body: formData,
   });
 
@@ -133,6 +189,7 @@ export async function apiUpload<T>(
       resBody
     );
   }
+
 
   return (resBody as ApiResponse<T>).data;
 }
@@ -168,6 +225,7 @@ export async function apiDownload(
   const response = await fetch(url, {
     method: "GET",
     headers,
+    credentials: "include",
   });
 
   if (response.status === 401) {

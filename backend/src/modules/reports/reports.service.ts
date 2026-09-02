@@ -416,6 +416,9 @@ export class ReportsService {
   public async exportTravelRequestsExcel(
     filters: Omit<TravelRequestReportFilters, "page" | "limit">
   ): Promise<Buffer> {
+    const MAX_EXPORT_RECORDS = 10000;
+    const BATCH_SIZE = 500;
+
     const where: Prisma.TravelRequestWhereInput = {};
 
     if (filters.status) where.status = filters.status;
@@ -432,31 +435,6 @@ export class ReportsService {
         where.departureDate.lte = endOfDay;
       }
     }
-
-    const requests = await prisma.travelRequest.findMany({
-      where,
-      include: {
-        employee: {
-          select: {
-            employeeId: true,
-            firstName: true,
-            lastName: true,
-            user: { select: { email: true } },
-            department: { select: { name: true } },
-            designation: { select: { name: true } },
-            branch: { select: { name: true } },
-          },
-        },
-        approvedBy: {
-          select: {
-            employeeId: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "ETMS";
@@ -515,37 +493,76 @@ export class ReportsService {
       };
     });
 
-    // Populate Data
-    for (const req of requests) {
-      const row = worksheet.addRow([
-        req.id,
-        req.employee.employeeId,
-        `${req.employee.firstName} ${req.employee.lastName}`,
-        req.employee.user.email,
-        req.employee.department.name,
-        req.employee.designation.name,
-        req.employee.branch.name,
-        req.origin,
-        req.destination,
-        req.tripType,
-        req.departureDate.toISOString().split("T")[0],
-        req.returnDate ? req.returnDate.toISOString().split("T")[0] : "N/A",
-        req.purpose,
-        req.status,
-        req.approvedBy
-          ? `${req.approvedBy.firstName} ${req.approvedBy.lastName} (${req.approvedBy.employeeId})`
-          : "N/A",
-        req.approvalDate ? req.approvalDate.toISOString() : "N/A",
-        req.createdAt.toISOString(),
-        req.updatedAt.toISOString(),
-      ]);
+    // Process data incrementally in bounded batches to avoid out-of-memory spikes
+    let skip = 0;
+    let totalProcessed = 0;
 
-      row.eachCell((cell) => {
-        cell.font = { name: "Arial", size: 10 };
-        cell.border = {
-          bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
-        };
+    while (totalProcessed < MAX_EXPORT_RECORDS) {
+      const batch = await prisma.travelRequest.findMany({
+        where,
+        include: {
+          employee: {
+            select: {
+              employeeId: true,
+              firstName: true,
+              lastName: true,
+              user: { select: { email: true } },
+              department: { select: { name: true } },
+              designation: { select: { name: true } },
+              branch: { select: { name: true } },
+            },
+          },
+          approvedBy: {
+            select: {
+              employeeId: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: Math.min(BATCH_SIZE, MAX_EXPORT_RECORDS - totalProcessed),
       });
+
+      if (batch.length === 0) break;
+
+      for (const req of batch) {
+        const row = worksheet.addRow([
+          req.id,
+          req.employee.employeeId,
+          `${req.employee.firstName} ${req.employee.lastName}`,
+          req.employee.user.email,
+          req.employee.department.name,
+          req.employee.designation.name,
+          req.employee.branch.name,
+          req.origin,
+          req.destination,
+          req.tripType,
+          req.departureDate.toISOString().split("T")[0],
+          req.returnDate ? req.returnDate.toISOString().split("T")[0] : "N/A",
+          req.purpose,
+          req.status,
+          req.approvedBy
+            ? `${req.approvedBy.firstName} ${req.approvedBy.lastName} (${req.approvedBy.employeeId})`
+            : "N/A",
+          req.approvalDate ? req.approvalDate.toISOString() : "N/A",
+          req.createdAt.toISOString(),
+          req.updatedAt.toISOString(),
+        ]);
+
+        row.eachCell((cell) => {
+          cell.font = { name: "Arial", size: 10 };
+          cell.border = {
+            bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
+          };
+        });
+      }
+
+      totalProcessed += batch.length;
+      skip += batch.length;
+
+      if (batch.length < BATCH_SIZE) break;
     }
 
     // Auto-fit column widths
@@ -569,6 +586,9 @@ export class ReportsService {
   public async exportBookingsExcel(
     filters: Omit<BookingReportFilters, "page" | "limit">
   ): Promise<Buffer> {
+    const MAX_EXPORT_RECORDS = 10000;
+    const BATCH_SIZE = 500;
+
     const where: Prisma.BookingWhereInput = {};
 
     if (filters.vendor) where.vendor = filters.vendor;
@@ -589,25 +609,6 @@ export class ReportsService {
         where.departureDatetime.lte = endOfDay;
       }
     }
-
-    const bookings = await prisma.booking.findMany({
-      where,
-      include: {
-        travelRequest: {
-          include: {
-            employee: {
-              select: {
-                employeeId: true,
-                firstName: true,
-                lastName: true,
-                department: { select: { name: true } },
-              },
-            },
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "ETMS";
@@ -669,42 +670,74 @@ export class ReportsService {
       };
     });
 
-    // Populate Data
-    for (const bk of bookings) {
-      const row = worksheet.addRow([
-        bk.id,
-        bk.travelRequestId,
-        bk.travelRequest.employee.employeeId,
-        `${bk.travelRequest.employee.firstName} ${bk.travelRequest.employee.lastName}`,
-        bk.travelRequest.employee.department.name,
-        bk.airline,
-        bk.flightNumber,
-        bk.pnr,
-        bk.ticketNumber,
-        bk.departureAirport,
-        bk.arrivalAirport,
-        bk.departureDatetime.toISOString(),
-        bk.arrivalDatetime.toISOString(),
-        Number(bk.fare),
-        bk.currency,
-        bk.seat ?? "N/A",
-        bk.baggage ?? "N/A",
-        bk.vendor,
-        bk.bookingSource ?? "Corporate Desk",
-        bk.bookingDate.toISOString(),
-        bk.ticketFilePath ? "YES" : "NO",
-      ]);
+    // Process data incrementally in bounded batches
+    let skip = 0;
+    let totalProcessed = 0;
 
-      row.eachCell((cell, colNum) => {
-        cell.font = { name: "Arial", size: 10 };
-        cell.border = {
-          bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
-        };
-        // Format Fare column (col 14) as currency number
-        if (colNum === 14) {
-          cell.numFmt = "#,##0.00";
-        }
+    while (totalProcessed < MAX_EXPORT_RECORDS) {
+      const batch = await prisma.booking.findMany({
+        where,
+        include: {
+          travelRequest: {
+            include: {
+              employee: {
+                select: {
+                  employeeId: true,
+                  firstName: true,
+                  lastName: true,
+                  department: { select: { name: true } },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: Math.min(BATCH_SIZE, MAX_EXPORT_RECORDS - totalProcessed),
       });
+
+      if (batch.length === 0) break;
+
+      for (const bk of batch) {
+        const row = worksheet.addRow([
+          bk.id,
+          bk.travelRequestId,
+          bk.travelRequest.employee.employeeId,
+          `${bk.travelRequest.employee.firstName} ${bk.travelRequest.employee.lastName}`,
+          bk.travelRequest.employee.department.name,
+          bk.airline,
+          bk.flightNumber,
+          bk.pnr,
+          bk.ticketNumber,
+          bk.departureAirport,
+          bk.arrivalAirport,
+          bk.departureDatetime.toISOString(),
+          bk.arrivalDatetime.toISOString(),
+          Number(bk.fare),
+          bk.currency,
+          bk.seat ?? "N/A",
+          bk.baggage ?? "N/A",
+          bk.vendor,
+          bk.bookingSource ?? "Corporate Desk",
+          bk.bookingDate.toISOString(),
+          bk.ticketFilePath ? "YES" : "NO",
+        ]);
+
+        row.eachCell((cell, colNum) => {
+          cell.font = { name: "Arial", size: 10 };
+          cell.border = {
+            bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
+          };
+          if (colNum === 14) {
+            cell.numFmt = "#,##0.00";
+          }
+        });
+      }
+
+      totalProcessed += batch.length;
+      skip += batch.length;
+
+      if (batch.length < BATCH_SIZE) break;
     }
 
     // Auto-fit column widths
@@ -725,3 +758,4 @@ export class ReportsService {
 }
 
 export const reportsService = new ReportsService();
+

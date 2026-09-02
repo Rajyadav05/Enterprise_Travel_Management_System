@@ -89,9 +89,15 @@ export interface FullEmployeeProfile extends SafeEmployee {
 
 export interface AuthResponseData {
   token: string;
+  refreshToken?: string;
   user: SafeUser;
   employee: SafeEmployee | null;
   role: RoleSummary;
+}
+
+export interface TokenRefreshResponse {
+  token: string;
+  refreshToken?: string;
 }
 
 export interface UserProfileResponse {
